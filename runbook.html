@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Copilot Studio Access Lockdown — Runbook</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { curve: 'basis' } });</script>
+<style>
+  :root { --bg:#f7f8fa; --card:#fff; --ink:#1f2328; --muted:#57606a;
+    --accent:#0b66c2; --good:#1f883d; --warn:#bf8700; --bad:#d1242f;
+    --border:#d0d7de; --code-bg:#0d1117; --code-ink:#e6edf3; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55}
+  header{background:linear-gradient(135deg,#0b66c2,#0a4d92);color:#fff;padding:32px 40px}
+  header h1{margin:0 0 6px;font-size:28px} header p{margin:0;opacity:.9}
+  main{max-width:1100px;margin:0 auto;padding:32px 24px 80px}
+  section{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:24px 28px;margin-bottom:24px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  h2{margin-top:0;border-bottom:1px solid var(--border);padding-bottom:8px;font-size:22px}
+  h3{margin-top:28px;font-size:17px;color:var(--accent)}
+  table{border-collapse:collapse;width:100%;margin:12px 0 18px;font-size:14px}
+  th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top} th{background:#f1f3f5}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+  code{background:#eef1f4;padding:1px 5px;border-radius:4px;font-size:13px}
+  pre{background:var(--code-bg);color:var(--code-ink);padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.45}
+  pre code{background:transparent;color:inherit;padding:0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.lock{background:#e7f1ff;color:#0b66c2} .pill.good{background:#dafbe1;color:var(--good)}
+  .pill.warn{background:#fff8c5;color:var(--warn)} .pill.bad{background:#ffebe9;color:var(--bad)}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin:12px 0 4px}
+  .card{border:1px solid var(--border);border-radius:8px;padding:14px 16px;background:#fcfdfe}
+  .card h4{margin:0 0 6px;font-size:15px} .card small{color:var(--muted)}
+  .mermaid{background:#fbfcfd;border:1px dashed var(--border);border-radius:8px;padding:14px;text-align:center}
+  .callout{border-left:4px solid var(--accent);background:#f0f7ff;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+  .callout.warn{border-color:var(--warn);background:#fffaeb}
+  .callout.bad{border-color:var(--bad);background:#fff0f0}
+  .callout.good{border-color:var(--good);background:#effff3}
+  .toc{columns:2;gap:24px} .toc a{display:block;color:var(--accent);text-decoration:none;padding:3px 0}
+  .toc a:hover{text-decoration:underline}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:24px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Copilot Studio Access Lockdown</h1>
+  <p>Two scripts. Run one once for the tenant, run the other per user.</p>
+</header>
+
+<main>
+
+<section>
+  <h2>Contents</h2>
+  <div class="toc">
+    <a href="#tldr">TL;DR</a>
+    <a href="#objective">1. Objective</a>
+    <a href="#layers">2. The three layers of defense</a>
+    <a href="#flow">3. Access decision flow</a>
+    <a href="#scripts">4. The two scripts</a>
+    <a href="#run-tenant">5. One-time: configure the tenant</a>
+    <a href="#run-grant">6. Per user: grant access</a>
+    <a href="#revoke">7. Revoke access</a>
+    <a href="#rollback">8. Full rollback</a>
+    <a href="#verify">9. Verification checklist</a>
+  </div>
+</section>
+
+<section id="tldr">
+  <h2>TL;DR</h2>
+  <div class="callout good">
+    <ol>
+      <li>Run <code>Configure-Tenant-CopilotStudioLockdown.ps1</code> <strong>once</strong>.</li>
+      <li>For every user who needs Copilot Studio: run <code>.\Grant-CopilotStudioAccess.ps1 -Upn user@tenant</code>.</li>
+      <li>To revoke: remove them from the <code>Copilot Studio Authors</code> group.</li>
+    </ol>
+    M365 Copilot license already includes the entitlement; the group controls who can sign in.
+  </div>
+</section>
+
+<section id="objective">
+  <h2>1. Objective</h2>
+  <p>Restrict Copilot Studio (web portal + agent creation) to <strong>only members of the <code>Copilot Studio Authors</code> Entra group</strong>. Prevent everyone else from creating Dataverse-for-Teams environments.</p>
+  <p>Microsoft documents that <em>no single tenant setting</em> blocks Dataverse-for-Teams environment creation. Multiple surfaces can trigger it (Teams app, Copilot Studio web, Power Apps maker portal, viral trial signup). This runbook closes all four doors.</p>
+</section>
+
+<section id="layers">
+  <h2>2. The three layers of defense</h2>
+  <p>All three are applied automatically by the one tenant configuration script.</p>
+  <div class="grid">
+    <div class="card"><h4><span class="pill lock">Layer 1</span> Entra portal lock</h4>
+      <small>Sets <code>AppRoleAssignmentRequired=True</code> on <em>Power Virtual Agents</em> + <em>Microsoft Copilot Studio Service</em> enterprise apps; assigns the Authors group. Anyone outside the group is rejected at sign-in.</small></div>
+    <div class="card"><h4><span class="pill lock">Layer 2</span> Block self-service trials</h4>
+      <small><code>Remove-AllowedConsentPlans Internal,Viral</code> — stops users from acquiring the Copilot Studio Viral Trial SKU that would bypass the group.</small></div>
+    <div class="card"><h4><span class="pill lock">Layer 3</span> Power Platform tenant flags</h4>
+      <small>Disables non-admin creation of production / trial / developer environments from <code>make.powerapps.com</code>.</small></div>
+  </div>
+</section>
+
+<section id="flow">
+  <h2>3. Access decision flow</h2>
+  <div class="mermaid">
+flowchart TD
+    U[User opens<br/>copilotstudio.microsoft.com] --> A{Member of<br/>Copilot Studio Authors?}
+    A -- No --> X1[BLOCKED at sign-in<br/>AADSTS50105<br/>Layer 1]
+    A -- Yes --> B{Has license that<br/>includes Copilot Studio?<br/>e.g. M365 Copilot}
+    B -- No --> X2[Portal loads but<br/>features unavailable]
+    B -- Yes --> OK[Can author agents]
+
+    Y[User tries to self-acquire<br/>Copilot Studio trial] --> Z[BLOCKED Layer 2]
+
+    M[User opens<br/>make.powerapps.com] --> N{Power Platform admin?}
+    N -- No --> X3[Cannot create environment<br/>Layer 3]
+    N -- Yes --> OK2[Can create environments]
+
+    classDef blocked fill:#ffebe9,stroke:#d1242f,color:#333;
+    classDef ok fill:#dafbe1,stroke:#1f883d,color:#333;
+    class X1,X2,X3,Z blocked;
+    class OK,OK2 ok;
+  </div>
+</section>
+
+<section id="scripts">
+  <h2>4. The two scripts</h2>
+  <table>
+    <thead><tr><th>File</th><th>When to run</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>Configure-Tenant-CopilotStudioLockdown.ps1</code></td><td>Once, at initial setup</td><td>Applies all 3 defense layers. Idempotent — safe to re-run.</td></tr>
+      <tr><td><code>Grant-CopilotStudioAccess.ps1</code></td><td>Each time you onboard a user</td><td>Adds the user to the <code>Copilot Studio Authors</code> group.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="run-tenant">
+  <h2>5. One-time: configure the tenant</h2>
+  <h3>Prerequisites</h3>
+  <ul>
+    <li>PowerShell 7+ (<code>pwsh</code>)</li>
+    <li>Roles: <strong>Power Platform Administrator</strong> + <strong>Global Administrator</strong></li>
+    <li>An Entra group named <code>Copilot Studio Authors</code>. Edit <code>$AuthorsGroupName</code> at the top of the script if your group has a different name.</li>
+  </ul>
+  <h3>Run it</h3>
+<pre><code>.\Configure-Tenant-CopilotStudioLockdown.ps1</code></pre>
+  <div class="callout warn">The script is <strong>idempotent</strong> — re-running it has no side effects.</div>
+</section>
+
+<section id="run-grant">
+  <h2>6. Per user: grant access</h2>
+  <h3>Prerequisite</h3>
+  <p>The user has a license that includes Copilot Studio entitlement (e.g. <em>Microsoft 365 Copilot</em>).</p>
+  <h3>Run it</h3>
+<pre><code>.\Grant-CopilotStudioAccess.ps1 -Upn alice@M365CPI90282478.onmicrosoft.com</code></pre>
+  <h3>Bulk add</h3>
+<pre><code>'alice@tenant.com','bob@tenant.com' |
+    ForEach-Object { .\Grant-CopilotStudioAccess.ps1 -Upn $_ }</code></pre>
+</section>
+
+<section id="revoke">
+  <h2>7. Revoke access</h2>
+<pre><code>Connect-MgGraph -NoWelcome -Scopes "Group.ReadWrite.All","User.Read.All"
+$g = Get-MgGroup -Filter "displayName eq 'Copilot Studio Authors'"
+$u = Get-MgUser  -UserId 'alice@M365CPI90282478.onmicrosoft.com'
+Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $u.Id</code></pre>
+</section>
+
+<section id="rollback">
+  <h2>8. Full rollback</h2>
+  <h3>Re-allow Copilot Studio portal for everyone</h3>
+<pre><code>Connect-MgGraph -NoWelcome -Scopes "Application.ReadWrite.All"
+$sps = '96ff4394-9197-43aa-b393-6a41652e21f8','9d8f559b-5984-46a4-902a-ad4271e83efa'
+foreach ($appId in $sps) {
+    $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'"
+    Update-MgServicePrincipal -ServicePrincipalId $sp.Id -AppRoleAssignmentRequired:$false
+}</code></pre>
+  <h3>Re-allow viral / internal trial signups</h3>
+<pre><code>Add-AllowedConsentPlans -Types @('Internal','Viral')</code></pre>
+  <h3>Re-enable non-admin environment creation</h3>
+<pre><code>$body = [pscustomobject]@{
+    disableEnvironmentCreationByNonAdminUsers      = $false
+    disableTrialEnvironmentCreationByNonAdminUsers = $false
+    powerPlatform = [pscustomobject]@{
+        governance = [pscustomobject]@{
+            disableDeveloperEnvironmentCreationByNonAdminUsers = $false
+        }
+    }
+}
+Set-TenantSettings -RequestBody $body</code></pre>
+</section>
+
+<section id="verify">
+  <h2>9. Verification checklist</h2>
+  <table>
+    <thead><tr><th>Test</th><th>Expected result</th></tr></thead>
+    <tbody>
+      <tr><td>Sign in to <code>copilotstudio.microsoft.com</code> as a non-Authors user</td><td><span class="pill bad">AADSTS50105</span> — sign-in blocked</td></tr>
+      <tr><td>Sign in as a member of <code>Copilot Studio Authors</code></td><td><span class="pill good">Loads</span></td></tr>
+      <tr><td>Try "+ New environment" at <code>make.powerapps.com</code> as a non-admin</td><td><span class="pill bad">Hidden / disabled</span></td></tr>
+      <tr><td>Try to start a Power Apps trial</td><td><span class="pill bad">Blocked</span></td></tr>
+      <tr><td><code>(Get-TenantSettings).disableEnvironmentCreationByNonAdminUsers</code></td><td><code>True</code></td></tr>
+      <tr><td><code>(Get-AllowedConsentPlans).types</code></td><td>Empty (or <code>Premium</code> only)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</main>
+<footer>Tenant: M365CPI90282478</footer>
+</body>
+</html>
