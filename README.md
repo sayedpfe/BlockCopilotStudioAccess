@@ -43,6 +43,138 @@ The `Configure-Tenant-CopilotStudioLockdown.ps1` script applies **three independ
 
 ---
 
+## How the scripts work
+
+### High-level architecture
+
+```mermaid
+flowchart TB
+    subgraph Admin["👤 Tenant Admin (Global + Power Platform Admin)"]
+        S1["Configure-Tenant-CopilotStudioLockdown.ps1<br/>(run ONCE)"]
+        S2["Grant-CopilotStudioAccess.ps1<br/>(run PER USER)"]
+    end
+
+    subgraph Tenant["🏢 Microsoft 365 Tenant"]
+        direction TB
+        G["🔐 Entra Group:<br/>'Copilot Studio Authors'"]
+        subgraph L1["Layer 1 — Entra ID"]
+            SP1["Enterprise App:<br/>Power Virtual Agents<br/>AppRoleAssignmentRequired = true"]
+            SP2["Enterprise App:<br/>Microsoft Copilot Studio Service<br/>AppRoleAssignmentRequired = true"]
+        end
+        subgraph L2["Layer 2 — Licensing"]
+            CP["Allowed Consent Plans:<br/>Internal ❌  Viral ❌"]
+        end
+        subgraph L3["Layer 3 — Power Platform"]
+            TS["Tenant Settings:<br/>disableEnvironmentCreationByNonAdminUsers = true<br/>disableTrialEnvironmentCreationByNonAdminUsers = true<br/>disableDeveloperEnvironmentCreationByNonAdminUsers = true"]
+        end
+    end
+
+    S1 -->|"Set AppRoleAssignmentRequired<br/>+ assign group"| SP1
+    S1 --> SP2
+    S1 -->|"Remove-AllowedConsentPlans<br/>Internal, Viral"| CP
+    S1 -->|"Set-TenantSettings"| TS
+    S2 -->|"New-MgGroupMember"| G
+    G -.->|"granted access via"| SP1
+    G -.-> SP2
+
+    classDef admin fill:#0078d4,stroke:#005a9e,color:#fff
+    classDef layer fill:#f3f2f1,stroke:#605e5c,color:#323130
+    classDef group fill:#107c10,stroke:#0b5d0b,color:#fff
+    class S1,S2 admin
+    class G group
+```
+
+### What `Configure-Tenant-CopilotStudioLockdown.ps1` does — step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as 👤 Admin
+    participant Script as 📜 Configure script
+    participant PP as Power Platform API
+    participant Graph as Microsoft Graph
+    participant Entra as Entra ID
+
+    Admin->>Script: Run .\Configure-Tenant-CopilotStudioLockdown.ps1
+    Script->>Script: Check & install required PS modules
+    Script->>PP: Add-PowerAppsAccount (interactive sign-in)
+    Script->>Graph: Connect-MgGraph (interactive sign-in)
+
+    Note over Script,PP: LAYER 3 — Tenant flags
+    Script->>PP: Set-TenantSettings (disable*EnvironmentCreation = true)
+    PP-->>Script: ✅ Non-admins blocked from creating envs
+    Script->>PP: Get-TenantSettings (verify)
+
+    Note over Script,PP: LAYER 2 — Trial SKUs
+    Script->>PP: Remove-AllowedConsentPlans -Types Internal,Viral
+    PP-->>Script: ✅ Self-service trials disabled
+
+    Note over Script,Entra: LAYER 1 — Entra app lock
+    Script->>Graph: Get-MgGroup 'Copilot Studio Authors'
+    Graph-->>Script: groupId
+    loop For each enterprise app<br/>(Power Virtual Agents,<br/>Microsoft Copilot Studio Service)
+        Script->>Graph: Get-MgServicePrincipal (by AppId)
+        Script->>Graph: Update-MgServicePrincipal<br/>AppRoleAssignmentRequired = true
+        Script->>Graph: New-MgServicePrincipalAppRoleAssignedTo<br/>(assign group)
+        Graph->>Entra: Apply
+    end
+    Script-->>Admin: ✅ Tenant configured
+```
+
+### What `Grant-CopilotStudioAccess.ps1` does — step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as 👤 Admin
+    participant Script as 📜 Grant script
+    participant Graph as Microsoft Graph
+    participant User as 🙋 New user
+
+    Admin->>Script: .\Grant-CopilotStudioAccess.ps1 -Upn alice@contoso.com
+    Script->>Graph: Get-MgContext (already connected?)
+    alt Not connected
+        Script->>Graph: Connect-MgGraph -Scopes Group.ReadWrite.All, User.Read.All
+    end
+    Script->>Graph: Get-MgGroup -Filter "displayName eq 'Copilot Studio Authors'"
+    Graph-->>Script: group object
+    Script->>Graph: Get-MgUser -UserId alice@contoso.com
+    Graph-->>Script: user object
+    Script->>Graph: Check existing membership
+    alt Already member
+        Script-->>Admin: ⏭ Skip — already has access
+    else Not yet a member
+        Script->>Graph: New-MgGroupMember
+        Graph-->>Script: ✅ Added
+        Script-->>Admin: User granted access (5–60 min propagation)
+    end
+    Note over User,Graph: Next sign-in to copilotstudio.microsoft.com → ✅ allowed
+```
+
+### Sign-in decision flow (what users experience)
+
+```mermaid
+flowchart LR
+    U["🙋 User signs in to<br/>copilotstudio.microsoft.com"] --> Q1{Member of<br/>'Copilot Studio<br/>Authors' group?}
+    Q1 -->|No| B1["❌ AADSTS50105<br/>Application not assigned"]
+    Q1 -->|Yes| Q2{Has Copilot Studio<br/>license entitlement?}
+    Q2 -->|No| B2["❌ Licensing error"]
+    Q2 -->|Yes| Q3{Trying to create<br/>a NEW environment?}
+    Q3 -->|No| OK1["✅ Use existing env"]
+    Q3 -->|Yes| Q4{Is user a<br/>Power Platform<br/>admin?}
+    Q4 -->|No| B3["❌ Tenant flag blocks<br/>non-admin env creation"]
+    Q4 -->|Yes| OK2["✅ Environment created"]
+
+    classDef ok fill:#107c10,stroke:#0b5d0b,color:#fff
+    classDef bad fill:#d13438,stroke:#a4262c,color:#fff
+    classDef q fill:#fff4ce,stroke:#797673,color:#323130
+    class OK1,OK2 ok
+    class B1,B2,B3 bad
+    class Q1,Q2,Q3,Q4 q
+```
+
+---
+
 ## Prerequisites
 
 - **PowerShell 7+** (`pwsh`)
