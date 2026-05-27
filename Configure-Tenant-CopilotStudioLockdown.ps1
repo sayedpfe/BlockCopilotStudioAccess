@@ -4,8 +4,9 @@
 # ONE-TIME tenant configuration. After running this:
 #   * No one can use the Copilot Studio web portal except members of the
 #     'Copilot Studio Authors' Entra group.
-#   * No user can self-acquire viral / internal trial SKUs (which would
-#     otherwise bypass the group restriction).
+#   * No user can self-acquire viral / internal trial SKUs, nor self-sign-up
+#     for email-based subscriptions (which would otherwise bypass the group
+#     restriction — e.g. the Copilot Studio trial path).
 #   * Non-admins cannot create production / trial / developer environments
 #     from make.powerapps.com.
 #
@@ -27,7 +28,8 @@ $required = @(
     'Microsoft.PowerApps.PowerShell',
     'Microsoft.Graph.Authentication',
     'Microsoft.Graph.Applications',
-    'Microsoft.Graph.Groups'
+    'Microsoft.Graph.Groups',
+    'Microsoft.Graph.Identity.SignIns'
 )
 foreach ($m in $required) {
     if (-not (Get-Module -ListAvailable -Name $m)) {
@@ -44,7 +46,7 @@ Add-PowerAppsAccount | Out-Null
 
 Write-Host "`n=== Signing in to Microsoft Graph ==="
 Connect-MgGraph -NoWelcome -Scopes `
-    "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Group.Read.All"
+    "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Group.Read.All","Policy.ReadWrite.Authorization"
 
 # -----------------------------------------------------------------------------
 # 2. LAYER 3 — Power Platform tenant flags
@@ -70,13 +72,31 @@ $v = Get-TenantSettings
 # 3. LAYER 2 — Block self-service viral / internal trials
 # -----------------------------------------------------------------------------
 Write-Host "`n=== Layer 2: Removing Internal + Viral consent plans ==="
+# -Prompt $false is REQUIRED: without it the cmdlet asks for interactive confirmation and
+# fails in any non-interactive/automation session. Do not mask a real failure as "already removed".
 try {
-    Remove-AllowedConsentPlans -Types @('Internal','Viral') -ErrorAction Stop
+    Remove-AllowedConsentPlans -Types @('Internal','Viral') -Prompt $false -ErrorAction Stop
     "  Removed."
 } catch {
-    "  (Already removed or: $($_.Exception.Message))"
+    "  WARNING: could not remove consent plans: $($_.Exception.Message)"
 }
-"  Currently allowed: $((Get-AllowedConsentPlans).types -join ', ')"
+"  Currently allowed: $((Get-AllowedConsentPlans).types -join ', ')   (empty = blocked)"
+
+# -----------------------------------------------------------------------------
+# 3b. LAYER 2 (cont.) — Block email-based self-service subscription sign-up
+#     Microsoft pairs the consent-plan block above with this Entra
+#     authorization-policy flag. Without it, users can still self-sign-up
+#     for email-based subscriptions (incl. the Copilot Studio trial path).
+#     NOTE: $false = NOT allowed = blocked (the value is the permission, not the block).
+# -----------------------------------------------------------------------------
+Write-Host "`n=== Layer 2b: Blocking email-based self-service sign-up (Entra) ==="
+try {
+    Update-MgPolicyAuthorizationPolicy -BodyParameter @{ allowedToSignUpEmailBasedSubscriptions = $false } -ErrorAction Stop
+    "  allowedToSignUpEmailBasedSubscriptions -> False (blocked)"
+} catch {
+    "  (Could not set: $($_.Exception.Message))"
+}
+"  Currently: allowedToSignUpEmailBasedSubscriptions = $((Get-MgPolicyAuthorizationPolicy).AllowedToSignUpEmailBasedSubscriptions)"
 
 # -----------------------------------------------------------------------------
 # 4. LAYER 1 — Lock Copilot Studio web portal to the Authors group

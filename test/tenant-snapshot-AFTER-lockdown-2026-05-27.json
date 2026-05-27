@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "tenant": "M365CPI65933417.onmicrosoft.com",
+    "tenantId": "79fee93b-cec6-48a9-aeaa-d7ce73fbe904",
+    "date": "2026-05-27",
+    "capturedBy": "Snapshot-TenantState.ps1"
+  },
+  "servicePrincipals": {
+    "PowerVirtualAgents_96ff4394": {
+      "appId": "96ff4394-9197-43aa-b393-6a41652e21f8",
+      "found": true,
+      "spObjectId": "d3551e3b-24a0-45c3-901d-e9917371a568",
+      "displayName": "Power Virtual Agents ",
+      "appRoleAssignmentRequired": true,
+      "assignments": [
+        {
+          "principalDisplayName": "Copilot Studio Authors",
+          "principalId": "4dee1ac2-6c6f-4ce3-b375-8a20def22a91",
+          "principalType": "Group"
+        }
+      ]
+    },
+    "CopilotStudioService_9d8f559b": {
+      "appId": "9d8f559b-5984-46a4-902a-ad4271e83efa",
+      "found": true,
+      "spObjectId": "37dce225-9e73-4a8d-bb98-4bd301c67348",
+      "displayName": "Microsoft Copilot Studio Service",
+      "appRoleAssignmentRequired": true,
+      "assignments": [
+        {
+          "principalDisplayName": "Copilot Studio Authors",
+          "principalId": "4dee1ac2-6c6f-4ce3-b375-8a20def22a91",
+          "principalType": "Group"
+        }
+      ]
+    }
+  },
+  "authorizationPolicy": {
+    "allowedToSignUpEmailBasedSubscriptions": false
+  },
+  "authorsGroup": {
+    "found": true,
+    "id": "4dee1ac2-6c6f-4ce3-b375-8a20def22a91",
+    "displayName": "Copilot Studio Authors",
+    "members": [
+      {
+        "upn": "cps-author1@M365CPI65933417.onmicrosoft.com",
+        "display": "CPS Test Author",
+        "id": "2491ed6f-8e33-4027-adca-54c49f66abf7"
+      }
+    ]
+  },
+  "tenantSettings": {
+    "disableEnvironmentCreationByNonAdminUsers": true,
+    "disableTrialEnvironmentCreationByNonAdminUsers": true,
+    "disableDeveloperEnvironmentCreationByNonAdminUsers": true
+  },
+  "allowedConsentPlans": []
+}

@@ -1,0 +1,36 @@
+flowchart TD
+    Admin([Global + Power Platform Admin]):::neutral --> L3
+    Admin --> L2
+    Admin --> L1
+
+    subgraph L3["LAYER 3 — Tenant flags  (Microsoft-supported)"]
+        direction LR
+        T1["Block prod env<br/>creation"]
+        T2["Block trial env<br/>creation"]
+        T3["Block developer<br/>env creation"]
+    end
+
+    subgraph L2["LAYER 2 — Block self-service trials  (Microsoft-supported)"]
+        direction LR
+        C1["Remove Internal +<br/>Viral consent plans"]
+        C2["allowedToSignUpEmail<br/>BasedSubscriptions = false"]
+    end
+
+    subgraph L1["LAYER 1 — Portal lock  (COMMUNITY WORKAROUND — unsupported)"]
+        direction LR
+        A1["AppRoleAssignmentRequired<br/>on PVA + CPS Service apps"]
+        A2["Assign only<br/>'Copilot Studio Authors'"]
+    end
+
+    L1 --> Q{"User opens<br/>Copilot Studio"}
+    Q -->|In Authors group| Allow["✓ Access granted"]:::ok
+    Q -->|Not in group| Block["✗ Blocked — AADSTS50105"]:::bad
+
+    classDef supported fill:#2E7D32,stroke:#21295C,color:#fff,font-size:16px
+    classDef unsupported fill:#F57F17,stroke:#21295C,color:#fff,font-size:16px
+    classDef neutral fill:#065A82,stroke:#21295C,color:#fff,font-size:16px
+    classDef ok fill:#2E7D32,stroke:#21295C,color:#fff,font-size:16px
+    classDef bad fill:#C62828,stroke:#21295C,color:#fff,font-size:16px
+    class L3,L2 supported
+    class L1 unsupported
+    class Q neutral
